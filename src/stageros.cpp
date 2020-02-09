@@ -48,6 +48,7 @@
 #include <geometry_msgs/Twist.h>
 #include <rosgraph_msgs/Clock.h>
 #include <std_msgs/ColorRGBA.h>
+#include <std_msgs/UInt8.h>
 
 #include <std_srvs/Empty.h>
 
@@ -62,6 +63,7 @@
 #define BASE_SCAN "base_scan"
 #define BASE_POSE_GROUND_TRUTH "base_pose_ground_truth"
 #define CMD_VEL "cmd_vel"
+#define STALLED "stalled"
 
 // Our node
 class StageNode
@@ -94,6 +96,7 @@ private:
         std::vector<ros::Publisher> depth_pubs;  //multiple depths
         std::vector<ros::Publisher> camera_pubs; //multiple cameras
         std::vector<ros::Publisher> laser_pubs;  //multiple lasers
+        ros::Publisher stall_pub; // stall publisher
 
         ros::Subscriber cmdvel_sub; //one cmd_vel subscriber
         ros::Subscriber color_sub;  //one color subscriber
@@ -369,6 +372,7 @@ int StageNode::SubscribeModels()
         new_robot->ground_truth_pub = n_.advertise<nav_msgs::Odometry>(mapName(BASE_POSE_GROUND_TRUTH, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10);
         new_robot->cmdvel_sub = n_.subscribe<geometry_msgs::Twist>(mapName(CMD_VEL, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10, boost::bind(&StageNode::cmdvelReceived, this, r, _1));
         new_robot->color_sub = n_.subscribe<std_msgs::ColorRGBA>(mapName(COLOR, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10, boost::bind(&StageNode::colorReceived, this, r, _1));
+        new_robot->stall_pub = n_.advertise<std_msgs::UInt8>(mapName(STALLED, r, static_cast<Stg::Model*>(new_robot->positionmodel)), 10);
 
         for (size_t s = 0; s < new_robot->lasermodels.size(); ++s)
         {
@@ -529,6 +533,11 @@ void StageNode::WorldCallback()
         odom_msg.header.stamp = sim_time;
 
         robotmodel->odom_pub.publish(odom_msg);
+
+        //publish current stall state
+        std_msgs::UInt8 stall_msg;
+        stall_msg.data = robotmodel->positionmodel->Stalled();
+        robotmodel->stall_pub.publish(stall_msg);
 
         // broadcast odometry transform
         tf::Quaternion odomQ;
