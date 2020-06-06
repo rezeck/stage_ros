@@ -278,6 +278,10 @@ void StageNode::colorReceived(int idx, const boost::shared_ptr<std_msgs::ColorRG
 {
     boost::mutex::scoped_lock lock(msg_lock);
     this->positionmodels[idx]->SetColor(Stg::Color(msg->r, msg->g, msg->b, msg->a));
+    this->lasermodels[idx]->GetSensorsMutable()[0].color.r = msg->r;
+    this->lasermodels[idx]->GetSensorsMutable()[0].color.g = msg->g;
+    this->lasermodels[idx]->GetSensorsMutable()[0].color.b = msg->b;
+    this->lasermodels[idx]->GetSensorsMutable()[0].color.a = msg->a;
     this->base_last_cmd = this->sim_time;
 }
 
