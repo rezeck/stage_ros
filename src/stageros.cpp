@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fstream>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -96,7 +97,7 @@ private:
         std::vector<ros::Publisher> depth_pubs;  //multiple depths
         std::vector<ros::Publisher> camera_pubs; //multiple cameras
         std::vector<ros::Publisher> laser_pubs;  //multiple lasers
-        ros::Publisher stall_pub; // stall publisher
+        ros::Publisher stall_pub;                // stall publisher
 
         ros::Subscriber cmdvel_sub; //one cmd_vel subscriber
         ros::Subscriber color_sub;  //one color subscriber
@@ -273,7 +274,6 @@ void StageNode::cmdvelReceived(int idx, const boost::shared_ptr<geometry_msgs::T
     this->base_last_cmd = this->sim_time;
 }
 
-
 void StageNode::colorReceived(int idx, const boost::shared_ptr<std_msgs::ColorRGBA const> &msg)
 {
     boost::mutex::scoped_lock lock(msg_lock);
@@ -312,8 +312,47 @@ StageNode::StageNode(int argc, char **argv, bool gui, const char *fname, bool us
     // initialize libstage
     Stg::Init(&argc, &argv);
 
-    if (gui)
-        this->world = new Stg::WorldGui(600, 400, "Stage (ROS)");
+    // Fix resolution issue when use resize into world file
+    ROS_INFO("%s", fname);
+    std::ifstream input(fname);
+    int fwidth = 600;
+    int fheight = 400;
+    std::string firstString = "";
+    std::string otherString = "";
+    for (std::string line; getline(input, line);)
+    {
+        if (line.find("#") != std::string::npos)
+        {
+            continue;
+        }
+
+        if (line.find("window") != std::string::npos)
+        {
+            ROS_INFO("%s", line.c_str());
+            for (std::string line; getline(input, line);)
+            {
+                if (line.find("size") != std::string::npos)
+                {
+                    std::stringstream ss(line);
+                    ss >> otherString >> firstString >> fwidth >> fheight >> firstString;
+                    if (otherString.find("#") != std::string::npos)
+                    {
+                        fwidth = 600;
+                        fheight = 400;
+                    }
+                }
+                ROS_INFO("%s", line.c_str());
+                if (line.find(")") != std::string::npos)
+                {
+                    break;
+                }
+            }
+        }
+    }
+    ROS_INFO("%dx%d", fwidth, fheight);
+
+    if (gui) //635x666 600x400
+        this->world = new Stg::WorldGui(fwidth, fheight, "Stage (ROS)");
     else
         this->world = new Stg::World();
 
@@ -376,7 +415,7 @@ int StageNode::SubscribeModels()
         new_robot->ground_truth_pub = n_.advertise<nav_msgs::Odometry>(mapName(BASE_POSE_GROUND_TRUTH, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10);
         new_robot->cmdvel_sub = n_.subscribe<geometry_msgs::Twist>(mapName(CMD_VEL, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10, boost::bind(&StageNode::cmdvelReceived, this, r, _1));
         new_robot->color_sub = n_.subscribe<std_msgs::ColorRGBA>(mapName(COLOR, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10, boost::bind(&StageNode::colorReceived, this, r, _1));
-        new_robot->stall_pub = n_.advertise<std_msgs::UInt8>(mapName(STALLED, r, static_cast<Stg::Model*>(new_robot->positionmodel)), 10);
+        new_robot->stall_pub = n_.advertise<std_msgs::UInt8>(mapName(STALLED, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10);
 
         for (size_t s = 0; s < new_robot->lasermodels.size(); ++s)
         {
