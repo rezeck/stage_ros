@@ -63,6 +63,7 @@
 #define COLOR "color"
 #define BASE_SCAN "base_scan"
 #define BASE_POSE_GROUND_TRUTH "base_pose_ground_truth"
+#define NEIGHBORHOOD "neighborhood"
 #define CMD_VEL "cmd_vel"
 #define STALLED "stalled"
 
@@ -92,6 +93,7 @@ private:
         //ros publishers
         ros::Publisher odom_pub;         //one odom
         ros::Publisher ground_truth_pub; //one ground truth
+        ros::Publisher neighborhood_pub; //neighborhood publication
 
         std::vector<ros::Publisher> image_pubs;  //multiple images
         std::vector<ros::Publisher> depth_pubs;  //multiple depths
@@ -413,6 +415,7 @@ int StageNode::SubscribeModels()
 
         new_robot->odom_pub = n_.advertise<nav_msgs::Odometry>(mapName(ODOM, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10);
         new_robot->ground_truth_pub = n_.advertise<nav_msgs::Odometry>(mapName(BASE_POSE_GROUND_TRUTH, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10);
+        new_robot->neighborhood_pub = n_.advertise<nav_msgs::Odometry>(mapName(NEIGHBORHOOD, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10);
         new_robot->cmdvel_sub = n_.subscribe<geometry_msgs::Twist>(mapName(CMD_VEL, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10, boost::bind(&StageNode::cmdvelReceived, this, r, _1));
         new_robot->color_sub = n_.subscribe<std_msgs::ColorRGBA>(mapName(COLOR, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10, boost::bind(&StageNode::colorReceived, this, r, _1));
         new_robot->stall_pub = n_.advertise<std_msgs::UInt8>(mapName(STALLED, r, static_cast<Stg::Model *>(new_robot->positionmodel)), 10);
@@ -629,6 +632,52 @@ void StageNode::WorldCallback()
         ground_truth_msg.header.stamp = sim_time;
 
         robotmodel->ground_truth_pub.publish(ground_truth_msg);
+
+        // Publish Neighborhood ground thuth pose and velocity for robot r
+        double neighborhood_distance = 0.0;
+        if (!n_.getParam("neighborhood_distance", neighborhood_distance))
+        {
+            neighborhood_distance = 0.0;
+        }
+        for (size_t n = 0; n < this->robotmodels_.size(); ++n)
+        {
+            if (r == n)
+            {
+                continue;
+            }
+            StageRobot const *neighbormodel = this->robotmodels_[n];
+            Stg::Pose ngpose = neighbormodel->positionmodel->GetGlobalPose();
+            // Compute distance
+            double dx = ngpose.x - gpose.x;
+            double dy = ngpose.y - gpose.y;
+            double dist = sqrt(dx * dx + dy * dy);
+            if (dist > neighborhood_distance)
+            {
+                continue;
+            }
+            Stg::Pose ngvel = neighbormodel->positionmodel->GetGlobalVelocity();
+            tf::Quaternion q_ngpose;
+            q_ngpose.setRPY(0.0, 0.0, ngpose.a);
+            tf::Transform ngt(q_ngpose, tf::Point(ngpose.x, ngpose.y, 0.0));
+
+            nav_msgs::Odometry neighbor_msg;
+            neighbor_msg.pose.pose.position.x = ngt.getOrigin().x();
+            neighbor_msg.pose.pose.position.y = ngt.getOrigin().y();
+            neighbor_msg.pose.pose.position.z = ngt.getOrigin().z();
+            neighbor_msg.pose.pose.orientation.x = ngt.getRotation().x();
+            neighbor_msg.pose.pose.orientation.y = ngt.getRotation().y();
+            neighbor_msg.pose.pose.orientation.z = ngt.getRotation().z();
+            neighbor_msg.pose.pose.orientation.w = ngt.getRotation().w();
+            neighbor_msg.twist.twist.linear.x = ngvel.x;
+            neighbor_msg.twist.twist.linear.y = ngvel.y;
+            neighbor_msg.twist.twist.linear.z = ngvel.z;
+            neighbor_msg.twist.twist.angular.z = ngvel.a;
+
+            neighbor_msg.header.frame_id = mapName("odom", n, static_cast<Stg::Model *>(robotmodel->positionmodel));
+            neighbor_msg.header.stamp = sim_time;
+
+            robotmodel->neighborhood_pub.publish(neighbor_msg);
+        }
 
         //cameras
         for (size_t s = 0; s < robotmodel->cameramodels.size(); ++s)
